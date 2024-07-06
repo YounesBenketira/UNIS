@@ -1,56 +1,88 @@
-ORG 0x7C00
-BITS 16
+[BITS 16]
+[ORG 0x7C00]
 
-%define ENDL 0x0D, 0x0A
+start:
+    ; Set up stack
+    cli
+    mov ax, 0x9000
+    mov ss, ax
+    mov sp, 0xFFFF
+    sti
 
-;
-; Prints a string to the screen.
-; Params:
-;   - ds:si points to string
-;
-puts:
-    ; save registers we will modify
-    push si
-    push ax
+    ; Print "Hello World"
+    mov si, hello_string
+    call print_string
 
-.loop:
-    lodsb                ; loads next character in al from ds:si
+    ; Prepare for protected mode
+    cli
+    lgdt [gdt_descriptor]
+
+    ; Enable A20 line
+    in al, 0x92
+    or al, 2
+    out 0x92, al
+
+    ; Switch to protected mode
+    mov eax, cr0
+    or eax, 0x1
+    mov cr0, eax
+
+    ; Far jump to 32-bit code
+    jmp 0x08:init_pm
+
+print_string:
+    lodsb
     or al, al
-    jz .done
-    ; jmp .loop
-
-    mov ah, 0x0e         ; teletype function of BIOS
-    int 0x10             ; BIOS video interrupt
-
-    jmp .loop
-
-.done:
-    pop ax
-    pop si
+    jz done
+    mov ah, 0x0E
+    int 0x10
+    jmp print_string
+done:
     ret
 
-main:
-    ; setup data segments
-    xor ax, ax           ; zero out ax
+[BITS 32]
+init_pm:
+    ; Set up segment registers
+    mov ax, 0x10
     mov ds, ax
-    mov es, ax
-
-    ; setup stack
     mov ss, ax
-    mov sp, 0x7C00       ; stack grows downwards from where we are loaded in memory
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
 
-    ; print message
-    mov si, msg_hello_world
-    call puts
+    ; Your 32-bit code here
+    ; This is where you'd continue with 64-bit transition and kernel loading
 
+    ; For now, just halt
+    cli
     hlt
 
-.halt:
-    jmp .halt
+; Data
+hello_string db 'Hello World', 0
 
-msg_hello_world: db 'Hello World!', ENDL, 0
+; GDT
+gdt_start:
+    dq 0x0
+gdt_code:
+    dw 0xFFFF
+    dw 0x0
+    db 0x0
+    db 10011010b
+    db 11001111b
+    db 0x0
+gdt_data:
+    dw 0xFFFF
+    dw 0x0
+    db 0x0
+    db 10010010b
+    db 11001111b
+    db 0x0
+gdt_end:
 
-; Padding to make the boot sector 512 bytes
+gdt_descriptor:
+    dw gdt_end - gdt_start - 1
+    dd gdt_start
+
+; Boot sector padding
 times 510-($-$$) db 0
-dw 0AA55h
-
+dw 0xAA55
